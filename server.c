@@ -1,14 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <signal.h>
-#include <sys/wait.h>
-#include <arpa/inet.h>
 #include <sys/socket.h>
-#include <sys/mman.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <string.h>
 
+#define MAX_CLIENT 5
 #define BUF_SIZE 30
+
+void *t_function(void *data);
+int client_index = 0;
+
 int main(int argc, char *argv[])
 {
 	// Argument check
@@ -17,16 +20,14 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	// Socket instiantiation
+	// Socket instiantiation (with thread)
 	int serv_sock, clnt_sock;
-	int str_len;
-	char msg[BUF_SIZE];
-	char* buf = malloc(sizeof(char)*BUF_SIZE);
-	char* con = malloc(sizeof(char)*BUF_SIZE);
+	pthread_t thread_client[MAX_CLIENT];
+
 	struct sockaddr_in serv_adr, clnt_adr;
 	socklen_t adr_sz;
-
 	serv_sock = socket(PF_INET, SOCK_STREAM, 0);
+
 	memset(&serv_adr, 0, sizeof(serv_adr));
 	serv_adr.sin_family = AF_INET;
 	serv_adr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -40,13 +41,61 @@ int main(int argc, char *argv[])
 	if (listen(serv_sock, 5) == -1)
 		printf("listen() error\n");
 
-	clnt_sock = accept(serv_sock, (struct sockaddr*)&clnt_adr, &adr_sz);
-	if (clnt_sock == -1)
-		printf("accepct() error\n");
-	else
-		printf("client connected");
+	// Variables for messages
+	int str_len;
+	char msg[BUF_SIZE];
+	char* buf = malloc(sizeof(char)*BUF_SIZE);
 
 	while(1) {
+		printf("accepting client...\n");
 
+		clnt_sock = accept(serv_sock, (struct sockaddr*)&clnt_adr, &adr_sz);
+		if(clnt_sock == -1) {
+			printf("accept error");
+			exit(1);
+		}
+
+		if(client_index >= MAX_CLIENT) {
+                        printf("client accept full (max client count : %d)\n", MAX_CLIENT);
+                        close(clnt_sock);
+                        continue;
+                }
+
+		if(pthread_create(&thread_client[client_index], NULL, t_function, (void *)&clnt_sock) != 0) {
+                        printf("thread create error\n");
+                        close(clnt_sock);
+                        continue;
+		}
+
+		client_index++;
+                printf("client accepted (Addr: %s, Port: %d)\n", inet_ntoa(clnt_adr.sin_addr), ntohs(clnt_adr.sin_port));
 	}
+}
+
+void *t_function(void *arg) {
+        int clnt_sock = *((int *)arg);
+        pid_t pid = getpid(); // process id
+        pthread_t tid = pthread_self(); // thread id
+        printf("pid:%u, tid:%x\n", (unsigned int)pid, (unsigned int)tid);
+
+        char buf[BUF_SIZE];
+        while(1)
+        {
+                memset(buf, 0x00, sizeof(buf));
+                if (read(clnt_sock, buf, sizeof(buf)) <= 0) {
+                        printf("client %d exit\n", clnt_sock);
+                        client_index--;
+                        close(clnt_sock);
+                        break;
+                }
+                printf("read : %s\n", buf);
+
+                if(write(clnt_sock, buf, sizeof(buf)) <= 0) {
+                        printf("client %d exit\n", clnt_sock);
+                        client_index--;
+                        close(clnt_sock);
+                        break;
+                }
+                printf("write : %s\n", buf);
+        }
 }

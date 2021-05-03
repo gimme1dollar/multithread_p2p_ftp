@@ -17,23 +17,42 @@ int main(int argc, char *argv[])
 	}
 	
 	// Socket instiantiation
-	int sock;
+	int clnt_sock;
 	pid_t pid;
 	char buf[BUF_SIZE];
-	struct sockaddr_in serv_adr;
+	struct sockaddr_in clnt_addr;
 
-	sock = socket(PF_INET, SOCK_STREAM, 0);  
-	memset(&serv_adr, 0, sizeof(serv_adr));
-	serv_adr.sin_family = AF_INET;
-	serv_adr.sin_addr.s_addr = inet_addr(argv[1]);
-	serv_adr.sin_port = htons(atoi(argv[2]));
+	clnt_sock = socket(PF_INET, SOCK_STREAM, 0);  
+	memset(&clnt_addr, 0, sizeof(clnt_addr));
+	clnt_addr.sin_family = AF_INET;
+	clnt_addr.sin_addr.s_addr = inet_addr(argv[1]);
+	clnt_addr.sin_port = htons(atoi(argv[2]));
 	
 	// try connect
-	if (connect(sock, (struct sockaddr*)&serv_adr, sizeof(serv_adr)) == -1)
+	if (connect(clnt_sock, (struct sockaddr*)&clnt_addr, sizeof(clnt_addr)) == -1)
 		printf("connect() error!");
 
 	printf("Welcome!\n");
 	while(1) {
+		memset(buf, 0x00, sizeof(buf));
+                printf("write : ");
 
+                fgets(buf, sizeof(buf), stdin);
+                buf[strlen(buf)-1] = '\0';
+
+                if(write(clnt_sock, buf, sizeof(buf)) <= 0)
+                {
+                        close(clnt_sock);
+                        break;
+                }
+
+                memset(buf, 0x00, sizeof(buf));
+                if (read(clnt_sock, buf, sizeof(buf)) <= 0)
+                {
+                        close(clnt_sock);
+                        break;
+                }
+
+                printf("read : %s\n", buf);
 	}
 }
