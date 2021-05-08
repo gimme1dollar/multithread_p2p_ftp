@@ -113,7 +113,7 @@ void *handle_clnt(void *arg) {
         
         // send directory list
         char filedir[BUF_SIZE] = "./serv_repo/\0";
-        char filelist[BUF_SIZE*MAX_FILE] = "server repo list:\n";
+        int filecount = 0;
         
         DIR *dir = NULL;
         struct dirent *ent;
@@ -121,21 +121,42 @@ void *handle_clnt(void *arg) {
         	while((ent = readdir(dir)) != NULL) {
         		if(!strcmp( ent->d_name, ".")) continue;
         		if(!strcmp( ent->d_name, "..")) continue;
-        		strcat(filelist, " \0");
-			strcat(filelist, ent->d_name);
-			strcat(filelist, "\n");
+        		filecount += 1;
         	}
         	closedir(dir);
         } else {
         	printf("No directory %s\n", filedir);
         }
-        write(clnt_sock, filelist, sizeof(filelist));
+        sprintf(msg, "%d", filecount);
+        write(clnt_sock, msg, BUF_SIZE);
         
+        if ((dir=opendir(filedir)) != NULL) {
+        	while((ent = readdir(dir)) != NULL) {
+        		if(!strcmp( ent->d_name, ".")) continue;
+        		if(!strcmp( ent->d_name, "..")) continue;
+        		memset(&msg, 0, BUF_SIZE);
+        		strcpy(msg, ent->d_name);
+        		msg[strlen(ent->d_name)] = '\0';
+        		write(clnt_sock, msg, BUF_SIZE);
+        	}
+        	closedir(dir);
+        } else {
+        	printf("No directory %s\n", filedir);
+        }
+        
+        // get file selection
+	read(clnt_sock, msg, BUF_SIZE);
+	printf("%s selected by client %d", msg, clnt_sock);
+	
+	// wait for other clients w.r.t chunk_num
+	
+	/*        
         // read routine
         while(str_len = read(clnt_sock, msg, BUF_SIZE) != 0) {
         	printf("%s", msg);
         	send_msg(msg, str_len);
         }
+        */
         
         // client closing
         printf("client %d closing\n", clnt_sock);

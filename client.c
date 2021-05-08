@@ -15,6 +15,7 @@ char name[NAME_SIZE] = "[DEFAULT]";
 
 void *send_msg(void *arg);
 void *recv_msg(void *arg);
+void *recv_file(void *arg);
 
 int main(int argc, char *argv[])
 {
@@ -45,7 +46,24 @@ int main(int argc, char *argv[])
 	}
 	printf("Welcome!\n");
 	
-	// Thread
+	// File list of serv_repo
+	read(clnt_sock, buf, BUF_SIZE);
+	int file_num = atoi(buf);
+	printf("** File list (num of %d) **\n", file_num);
+	for(int i = 0; i < file_num; i++) {
+		read(clnt_sock, buf, BUF_SIZE);
+		printf("%s\n", buf);
+	}
+	printf("***************************\n");
+	
+	// File selection
+	printf("Select file: ");
+	fgets(msg, BUF_SIZE, stdin);
+	msg[strlen(msg)-1] = '\0';
+	write(clnt_sock, msg, BUF_SIZE);
+	
+	
+	// Create flow-network with thread
 	pthread_t send_thread, recv_thread;
 	
 	pthread_create(&send_thread, NULL, send_msg, (void *)&clnt_sock);
@@ -65,7 +83,7 @@ void *send_msg(void *arg) {
 		memset(&msg, '\0', BUF_SIZE);
 		fgets(msg, BUF_SIZE, stdin);
 		
-		if(!strcmp(msg, "quit\n")) {
+		if(!strcmp(msg, "q\n")) {
 			close(sock);
 			exit(0);
 		} else {
@@ -93,5 +111,10 @@ void *recv_msg(void *arg) {
 		}
 	}
 	
+	close(sock);
+	return NULL;
+}
+
+void *recv_file(void *arg) {
 	return NULL;
 }
