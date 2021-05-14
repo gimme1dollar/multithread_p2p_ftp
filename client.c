@@ -9,14 +9,15 @@
 #include <pthread.h>
 
 #define BUF_SIZE 30
-#define NAME_SIZE 16
-char msg[BUF_SIZE];
-char name[NAME_SIZE] = "[DEFAULT]";
 
-void *send_msg(void *arg);
-void *recv_msg(void *arg);
+pthread_mutex_t mtx;
 
 int clnt_stage = -1;
+void *initial_flow(void *arg);
+
+char **peer_addr_list;
+void *recv_file(void *arg);
+void *send_file(void *arg);
 
 int main(int argc, char *argv[])
 {
@@ -36,61 +37,87 @@ int main(int argc, char *argv[])
 	clnt_addr.sin_addr.s_addr = inet_addr(argv[1]);
 	clnt_addr.sin_port = htons(atoi(argv[2]));
 	
-	// try connect
 	if (connect(clnt_sock, (struct sockaddr*)&clnt_addr, sizeof(clnt_addr)) == -1) {
 		printf("connect() error!");
 		exit(1);
 	}
 
-	// Create flow-network with thread
-	pthread_t send_thread, recv_thread;
+	// Get chunk of files & list of peers from server
+	pthread_mutex_init(&mtx, NULL);
+	pthread_t t_id;
 
-	pthread_create(&send_thread, NULL, send_msg, (void *)&clnt_sock);
-	pthread_create(&recv_thread, NULL, recv_msg, (void *)&clnt_sock);
-	pthread_join(send_thread, NULL);
-	pthread_join(recv_thread, NULL);
+	clnt_stage = 0;
+	pthread_create(&t_id, NULL, initial_flow, (void *)&clnt_sock);
+	pthread_join(t_id, NULL);
+	pthread_detach(t_id);
 	close(clnt_sock);
-	
+
+	// Build flow-network with thread
+	int serv_sock;
+	struct sockaddr_in serv_addr;
+
 	return 0;
 }
 
-void *send_msg(void *arg) {
-	int sock = *((int *) arg);
-	char name_msg[NAME_SIZE + BUF_SIZE];
-	
-	while(1) {
-		memset(&msg, '\0', BUF_SIZE);
-		fgets(msg, BUF_SIZE, stdin);
-		
-		if(!strcmp(msg, "q\n")) {
-			close(sock);
-			exit(0);
-		} else {
-			sprintf(name_msg, "%s %s", name, msg);
-			write(sock, name_msg, strlen(name_msg));
-		}
-	}
-	
-	return NULL;
-}
-
-void *recv_msg(void *arg) {
-	int sock = *((int *) arg);
-	char name_msg[NAME_SIZE + BUF_SIZE];
+void *initial_flow(void *arg) {
+	int clnt_sock = *((int *)arg);
+	char buf[BUF_SIZE];
 	int str_len = 0;
 
 	while(1) {
-		str_len = read(sock, name_msg, sizeof(name_msg));
-		if(str_len < 0) {
-			close(sock);
-			exit(0);
-		} else {
-			name_msg[str_len-1] = '\0';
-			printf("%s", name_msg);
+		pthread_mutex_lock(&mtx);
+		//printf("stage %d\n", clnt_stage);
+
+		if(clnt_stage == 0) {
+			read(clnt_sock, buf, BUF_SIZE);
+			int file_num = atoi(buf);
+
+			printf("\n****** File list (num of %d) ******\n", file_num);
+			for(int i = 0; i < file_num; i++) {
+				read(clnt_sock, buf, BUF_SIZE);
+				printf("%s\n", buf);
+			}
+			printf("*********************************\n");
+
+			clnt_stage += 1;
+		} else if(clnt_stage == 1) {
+			// File selection
+			int sel;
+
+			printf("Select file number: ");
+			fgets(buf, BUF_SIZE, stdin);
+			write(clnt_sock, buf, BUF_SIZE);
+			printf("\n");
+
+			clnt_stage += 1;
+		} else if(clnt_stage == 2) {
+			str_len = read(clnt_sock, buf, BUF_SIZE);
+			if(str_len > 0) {
+				printf("%s\n", buf);
+
+				if( strstr(buf, "complete") != NULL ) {
+					printf("\n");
+					clnt_stage += 1;
+				}
+			}
+		} else if(clnt_stage == 3) {
+			read(clnt_sock, buf, BUF_SIZE);
+			int clnt_num = atoi(buf);
+
+			
+			printf("\n*** Client ip list (num of %d) ***\n", clnt_num);
+			for(int i = 0; i < clnt_num; i++) {
+				read(clnt_sock, buf, BUF_SIZE);
+				printf("%d: %s\n", i, buf);
+			}
+			printf("*********************************\n");
+			clnt_stage += 1;
 		}
+
+		pthread_mutex_unlock(&mtx);
 	}
 	
-	close(sock);
+	close(clnt_sock);
 	return NULL;
 }
 
