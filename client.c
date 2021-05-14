@@ -15,20 +15,17 @@ char name[NAME_SIZE] = "[DEFAULT]";
 
 void *send_msg(void *arg);
 void *recv_msg(void *arg);
-void *recv_file(void *arg);
+
+int clnt_stage = -1;
 
 int main(int argc, char *argv[])
 {
 	// Argument check
-	if (argc != 4) {
-		printf("Usage : %s <IP> <port> <name>\n", argv[0]);
+	if (argc != 3) {
+		printf("Usage : %s <IP> <port>\n", argv[0]);
 		exit(1);
 	}
 	
-	// name
-	sprintf(name, "[%s]", argv[3]);
-	char buf[BUF_SIZE];
-		
 	// Socket instiantiation
 	int clnt_sock;
 	struct sockaddr_in clnt_addr;
@@ -44,28 +41,10 @@ int main(int argc, char *argv[])
 		printf("connect() error!");
 		exit(1);
 	}
-	printf("Welcome!\n");
-	
-	// File list of serv_repo
-	read(clnt_sock, buf, BUF_SIZE);
-	int file_num = atoi(buf);
-	printf("** File list (num of %d) **\n", file_num);
-	for(int i = 0; i < file_num; i++) {
-		read(clnt_sock, buf, BUF_SIZE);
-		printf("%s\n", buf);
-	}
-	printf("***************************\n");
-	
-	// File selection
-	printf("Select file: ");
-	fgets(msg, BUF_SIZE, stdin);
-	msg[strlen(msg)-1] = '\0';
-	write(clnt_sock, msg, BUF_SIZE);
-	
-	
+
 	// Create flow-network with thread
 	pthread_t send_thread, recv_thread;
-	
+
 	pthread_create(&send_thread, NULL, send_msg, (void *)&clnt_sock);
 	pthread_create(&recv_thread, NULL, recv_msg, (void *)&clnt_sock);
 	pthread_join(send_thread, NULL);
