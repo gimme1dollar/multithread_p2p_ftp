@@ -8,13 +8,17 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
+#define PORT 7000
+#define MAX_CLNT 10
 #define BUF_SIZE 30
+#define UNT_FILE 128*8
 
 pthread_mutex_t mtx;
 
 int clnt_stage = -1;
 void *initial_flow(void *arg);
 
+int chnk_idx = -1;
 char **peer_addr_list;
 void *recv_file(void *arg);
 void *send_file(void *arg);
@@ -27,6 +31,12 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 	
+	// Variable settingsfile_names = (char**) malloc ( sizeof(char*) * MAX_FILE );
+	peer_addr_list = (char**) malloc ( sizeof(char*) * MAX_CLNT );
+	for(int i = 0; i < MAX_CLNT; i++){
+	    peer_addr_list[i] = (char*) malloc ( sizeof(char) * BUF_SIZE );
+	}
+
 	// Socket instiantiation
 	int clnt_sock;
 	struct sockaddr_in clnt_addr;
@@ -101,6 +111,36 @@ void *initial_flow(void *arg) {
 				}
 			}
 		} else if(clnt_stage == 3) {
+			// Socket instiantiation
+			int serv_sock;
+			struct sockaddr_in serv_addr;
+			serv_sock = socket(AF_INET, SOCK_STREAM, 0);  
+	
+			memset(&serv_addr, 0, sizeof(serv_addr));
+			serv_addr.sin_family = AF_INET;
+			serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+			serv_addr.sin_port = htons(PORT);
+
+			sprintf(buf, "%s", "error");
+
+			// Socket binding
+			if (bind(serv_sock, (struct sockaddr*) &serv_addr, sizeof(serv_addr)) == -1) {
+				printf("bind() error\n");
+				write(clnt_sock, buf, BUF_SIZE);
+			}
+	
+			// Socket listening
+			if (listen(serv_sock, 5) == -1) {
+				printf("listen() error\n");
+				write(clnt_sock, buf, BUF_SIZE);
+			}
+
+			// send port info to server if no error
+			sprintf(buf, "%d", PORT);
+			write(clnt_sock, buf, BUF_SIZE);
+
+			clnt_stage += 1;
+		} else if(clnt_stage == 4) {
 			read(clnt_sock, buf, BUF_SIZE);
 			int clnt_num = atoi(buf);
 
@@ -108,11 +148,53 @@ void *initial_flow(void *arg) {
 			printf("\n*** Client ip list (num of %d) ***\n", clnt_num);
 			for(int i = 0; i < clnt_num; i++) {
 				read(clnt_sock, buf, BUF_SIZE);
+				
 				printf("%d: %s\n", i, buf);
 			}
 			printf("*********************************\n");
 			clnt_stage += 1;
-		}
+		} else if(clnt_stage == 5) {
+			char file_name[2 * BUF_SIZE] = "./repo/";
+
+			// get file name
+			memset(&buf, 0, BUF_SIZE);
+			read(clnt_sock, buf, BUF_SIZE);
+			strcat(file_name, buf);
+
+			// get index of my chunk
+			memset(&buf, 0, BUF_SIZE);
+			read(clnt_sock, buf, BUF_SIZE);
+			chnk_idx = atoi(buf);
+			printf("Chunk idx: %d\n", chnk_idx);
+			strcat(file_name, "_");
+			strcat(file_name, buf);
+			strcat(file_name, ".txt");
+
+			// open file to be written
+			printf("File name: %s\n", file_name);
+			FILE* recv_file = fopen(file_name, "wb");
+			if (recv_file == NULL)
+			{
+				fclose(recv_file);
+			}
+
+			//get chunk content
+			int count = 0, str_len = BUF_SIZE;
+			while((count < UNT_FILE) && (str_len == BUF_SIZE)) {
+				memset(&buf, 0, BUF_SIZE);
+				str_len = read(clnt_sock, buf, BUF_SIZE);
+				count += str_len;
+				fwrite(buf, 1, str_len, recv_file);
+			}
+			
+		
+			fflush(recv_file);
+			fclose(recv_file);
+
+			printf("finished get_data\n");	
+
+			clnt_stage += 1;
+		} 
 
 		pthread_mutex_unlock(&mtx);
 	}
