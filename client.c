@@ -18,12 +18,23 @@ typedef struct {
 	int clnt_port;
 } clnt_params;
 
+
 typedef struct {
 	int sock;
-	int chnk_idx;
 	int peer_num;
+	int *collect;
+} acpt_params;
+
+typedef struct {
+	int sock;
+	int *collect;
+} recv_params;
+
+typedef struct {
+	int sock;
 	char *file_name;
-} file_params;
+	int chnk_idx;	
+} send_params;
 
 
 pthread_mutex_t mtx;
@@ -102,6 +113,7 @@ void *t_function(void *arg) {
 	for(i = 0; i < MAX_CLNT; i++){
 	    peer_addr_list[i] = (char*) malloc ( sizeof(char) * BUF_SIZE );
 	}
+	int peer_collected = 0;
 
 	char buf[BUF_SIZE];
 	int str_len = 0;
@@ -241,14 +253,13 @@ void *t_function(void *arg) {
 
 			clnt_stage += 1;
 		} else if(clnt_stage == 6) {
-			// wait for accept
+			// thread for accept (recv file)
 			pthread_t acpt_t;
 
-			file_params *acpt_param = (file_params *) malloc (sizeof (file_params));
+			acpt_params *acpt_param = (acpt_params *) malloc (sizeof (acpt_params));
 			acpt_param->sock = serv_sock;
-			acpt_param->chnk_idx = chnk_idx;
 			acpt_param->peer_num = peer_num;
-			acpt_param->file_name = file_name_org;
+			acpt_param->collect = &peer_collected;
 
 			if(pthread_create(&acpt_t, NULL, acpt_peer, (void *)acpt_param) != 0) {
 		          	printf("...thread create error\n");
@@ -259,42 +270,86 @@ void *t_function(void *arg) {
 
 			// connect to other peers
 			for (i = 0; i < peer_num; i++) {
-					// Socket instiantia
-					int peer_sock;
-					struct sockaddr_in peer_addr;
-					peer_sock = socket(AF_INET, SOCK_STREAM, 0);
+				// Socket instiantia
+				int peer_sock;
+				struct sockaddr_in peer_addr;
+				peer_sock = socket(AF_INET, SOCK_STREAM, 0);
 
-					memset(&peer_addr, 0, sizeof(peer_addr));
-					peer_addr.sin_family = AF_INET;
-					peer_addr.sin_addr.s_addr = inet_addr(peer_addr_list[i]);
-					peer_addr.sin_port = htons(peer_port_list[i]);
+				memset(&peer_addr, 0, sizeof(peer_addr));
+				peer_addr.sin_family = AF_INET;
+				peer_addr.sin_addr.s_addr = inet_addr(peer_addr_list[i]);
+				peer_addr.sin_port = htons(peer_port_list[i]);
 
-					if (connect (peer_sock, (struct sockaddr*) &peer_addr, sizeof (peer_addr)) == -1) {
-						printf("connect() error!");
-						exit(1);
-					}
+				if (connect (peer_sock, (struct sockaddr*) &peer_addr, sizeof (peer_addr)) == -1) {
+					printf("connect() error!");
+					exit(1);
+				}
 
-					printf ("peer_sock: %d, peer_addr: %s, peer_port: %d, file_name_org: %s\n", peer_sock, peer_addr_list[i], peer_port_list[i], file_name_org);
+				// thread send file
+				pthread_t send_t;
+				send_params *send_param = (send_params *) malloc (sizeof (send_params));
+				send_param->sock = peer_sock;
+				send_param->file_name = file_name_org;
+				send_param->chnk_idx = chnk_idx;
 
-					// thread
-					pthread_t send_t;
-
-
-					file_params *send_param = (file_params *) malloc (sizeof (file_params));
-					send_param->sock = peer_sock;
-					send_param->chnk_idx = chnk_idx;
-					send_param->peer_num = peer_num;
-					send_param->file_name = file_name_org;
-
-					if(pthread_create(&send_t, NULL, send_file, (void *)send_param) != 0) {
-			        		printf("...thread create error\n");
-			        		close(peer_sock);
-			        		continue;
-					}
-					pthread_detach(send_t);
+				if(pthread_create(&send_t, NULL, send_file, (void *)send_param) != 0) {
+			        	printf("...thread create error\n");
+			        	close(peer_sock);
+			        	continue;
+				}
+				pthread_detach(send_t);
 
 			}
-			clnt_stage++;
+			clnt_stage += 1;
+		} else if(clnt_stage == 7) {
+			// wait for peer sending files
+			printf("peer_collected %d\n", peer_collected);
+
+			if(peer_collected >= peer_num) {
+				clnt_stage +=1;
+			}
+		} else if(clnt_stage == 8) {
+			sleep(1);
+			printf("%s\n", file_name_org);
+
+			// concat all the files
+			FILE* concat_file = fopen(file_name_org, "wb");
+			if (concat_file == NULL)
+			{
+				printf("[concat_file] file error\n");
+				return NULL;
+			}
+
+			for(i = 0; i < peer_num+1 ; i++) {
+				char chnk_name[2*BUF_SIZE] = "./repo/\0";
+				sprintf(buf, "%s_%d", file_name_org, i);
+				strcat(chnk_name, buf);
+
+				FILE* chnk_file;
+				chnk_file = fopen(chnk_name, "rb");
+
+				// file size
+				fseek(chnk_file, 0, SEEK_END);
+				int file_size = ftell(chnk_file);
+
+				// file content
+				fseek(chnk_file, 0, SEEK_SET);
+				int count = 0, str_len = BUF_SIZE;
+				while((count < file_size) && (str_len == BUF_SIZE)) {
+					str_len = fread(buf, 1, BUF_SIZE, chnk_file);
+					printf("%s\n", buf);
+					count += str_len;
+					fwrite(buf, 1, str_len, concat_file);
+				}
+
+				fflush(chnk_file);
+				fclose(chnk_file);
+			} 
+
+			fflush(concat_file);
+			fclose(concat_file);
+			printf("\n\n finished getting %s\n", file_name_org);
+			break;
 		}
 
 		pthread_mutex_unlock(&mtx);
@@ -305,29 +360,27 @@ void *t_function(void *arg) {
 }
 
 void *acpt_peer(void *arg) {
-	file_params param = *(file_params *) arg;
-	int i = 0;
+	int acpt_num = 0;
+	char buf[BUF_SIZE];
+
+	acpt_params param = *(acpt_params *) arg;
 
 	while (1) {
 		struct sockaddr_in clnt_addr;
 		socklen_t clnt_addr_sz = sizeof(clnt_addr);
-		int clnt_sock = accept(param.sock, (struct sockaddr*)&clnt_addr, &clnt_addr_sz);
 
+		int clnt_sock = accept(param.sock, (struct sockaddr*)&clnt_addr, &clnt_addr_sz);
 		if(clnt_sock < 0) {
 			printf("...client accept error");
 			exit(1);
+		} else {
+			acpt_num += 1;
 		}
-		printf("...client %d accepted (Addr: %s, Port: %d)\n", clnt_sock, inet_ntoa(clnt_addr.sin_addr), ntohs(clnt_addr.sin_port));
-		i += 1;
 
 		pthread_t tid;
-
-		
-		file_params *recv_param = (file_params *) malloc (sizeof (file_params));
+		recv_params *recv_param = (recv_params *) malloc (sizeof (recv_params));
 		recv_param->sock = clnt_sock;
-		recv_param->chnk_idx = param.chnk_idx;
-		recv_param->peer_num = param.peer_num;
-		recv_param->file_name = param.file_name;
+		recv_param->collect = param.collect;
 
 		if(pthread_create(&tid, NULL, recv_file, (void *)recv_param) != 0) {
 		          printf("...thread create error\n");
@@ -336,64 +389,98 @@ void *acpt_peer(void *arg) {
 		}
 		pthread_detach(tid);
 
-		//
-		if(i >= param.peer_num) break;
+		// acpt_num 
+		if(acpt_num >= param.peer_num) break;
 	}
 
-	printf("out of acpt_peer\n");
+	//printf("peers all accpeted\n");
 	close(param.sock);
 	free(arg);
 	return NULL;
 }
 
 void *recv_file(void *arg) {
-	int i;
-	file_params param = *(file_params *) arg;
+	recv_params param = *(recv_params *) arg;
+	char buf[BUF_SIZE];
 
-	char *file_name_org = (char *) malloc (sizeof (int) * (2 * BUF_SIZE));
-	strcpy (file_name_org, param.file_name);
-	int peer_sock = param.sock;
-	int chnk_idx = param.chnk_idx;
-	int peer_num = param.peer_num;
+	// recv file name
+	char file_name[2*BUF_SIZE];
+	read(param.sock, buf, BUF_SIZE);
+	strcpy(file_name, buf);
 
-	char recv_file_name[BUF_SIZE];
-	memset (&recv_file_name, 0, BUF_SIZE);
-
-	while (1) {
-		sleep(1);
-		read (peer_sock, recv_file_name, BUF_SIZE);
-		printf ("[recv_file] recv_file_name: %s, chunk: %d, peer_sock: %d\n", recv_file_name, chnk_idx, peer_sock);
+	// recv file size
+	read(param.sock, buf, BUF_SIZE);
+	int file_size = atoi(buf);
+	printf("[recv_file] file_name %s (%d size)\n", file_name, file_size);
+	
+	// open file.
+	FILE* recv_file = fopen(file_name, "w");
+	if (recv_file == NULL)
+	{
+		printf("[recv_file] file error\n");
+		fclose(recv_file);
+		free (arg);
+		return NULL;
 	}
 
-	free (arg);
-	free (file_name_org);
+	// get file content
+	int count = 0, str_len = BUF_SIZE;
+	while((count < file_size) && (str_len == BUF_SIZE)) {
+		str_len = read(param.sock, buf, BUF_SIZE);
+		printf("%s", buf);
+		count += str_len;
+		fwrite(buf, 1, str_len, recv_file);
+	}
 
+	printf("collected %s\n", file_name);
+	*param.collect += 1;
+	fflush(recv_file);
+	fclose(recv_file);
+	free (arg);
 	return NULL;
 }
 
 
 void *send_file(void *arg) {
-	int i;
-	file_params param = *(file_params *) arg;
+	send_params param = *(send_params *) arg;
+	char buf[BUF_SIZE];
 
-	char *file_name_org = (char *) malloc (sizeof (int) * (2 * BUF_SIZE));
-	strcpy (file_name_org, param.file_name);
-	int peer_sock = param.sock;
+	// send file name
+	char file_name[2*BUF_SIZE] = "./repo/\0";
+	char *file_name_org = param.file_name;
 	int chnk_idx = param.chnk_idx;
-	int peer_num = param.peer_num;
+	sprintf(buf, "%s_%d", file_name_org, chnk_idx);
+	strcat(file_name, buf);
+	write (param.sock, file_name, BUF_SIZE);
 
-	char send_file_name[BUF_SIZE];
-	memset (&send_file_name, 0, BUF_SIZE);
-	sprintf (send_file_name, "%s_%d", file_name_org, chnk_idx);
-
-	while (1) {
-		sleep(1);
-		write (peer_sock, send_file_name, BUF_SIZE);
-		printf ("[send_file] send_file_name: %s, chunk: %d, peer_sock: %d\n", send_file_name, chnk_idx, peer_sock);
+	// open file
+	FILE* send_file;
+	send_file = fopen(file_name, "r");
+	if (send_file == NULL) {
+		printf("[send_file] file error\n");
+		free (arg);
+		return NULL;
 	}
 
-	free (arg);
-	free (file_name_org);
+	// send file size
+	fseek(send_file, 0, SEEK_END);
+	int file_size = ftell(send_file);
+	sprintf(buf, "%d", file_size);
+	write (param.sock, buf, BUF_SIZE);
 
+	// send file content
+	fseek(send_file, 0, SEEK_SET);
+	int count = 0, str_len = BUF_SIZE;
+	while((count < file_size) && (str_len == BUF_SIZE)) {
+		str_len = fread(buf, 1, BUF_SIZE, send_file);
+		printf("%s\n", buf);
+		count += str_len;
+		write(param.sock, buf, str_len);
+	}
+
+	fflush(send_file);
+	fclose(send_file);
+	printf("sent %s\n", file_name);
+	free (arg);
 	return NULL;
 }
