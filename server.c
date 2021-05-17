@@ -15,6 +15,11 @@
 #define MAX_FILE 10
 #define UNT_FILE 128*8
 
+typedef struct {
+	int test;
+	char **arr;
+} clnt_params;
+
 int clnt_cnt = 0;
 char **clnt_addr_list;
 int *clnt_port_list;
@@ -23,15 +28,19 @@ void *clnt_routine(void *arg);
 
 char file_dir[BUF_SIZE] = "./serv_repo/\0";
 int file_cnt = 0;
-char **file_names;
 int *file_chnks;
 int *file_clnt_num;
 int **file_clnt_list;
+
+int *mytest;
 
 pthread_mutex_t mtx;
 
 int main(int argc, char *argv[])
 {
+	mytest = (int*) malloc (sizeof(int));
+	*mytest = 100;
+
 	// Argument check
 	if (argc != 2) {
 		printf("Usage : %s <port>\n", argv[0]);
@@ -42,9 +51,8 @@ int main(int argc, char *argv[])
 	pthread_t tid;
 	pthread_mutex_init(&mtx, NULL);
 	
-	// File settings
-        DIR *dir = NULL;
-        struct dirent *ent;
+	// Variable settings
+	char **file_names;
 
 	file_chnks = (int*) malloc ( sizeof(int) * MAX_FILE );
 	file_clnt_num = (int*) malloc ( sizeof(int) * MAX_FILE );
@@ -55,11 +63,18 @@ int main(int argc, char *argv[])
 	    file_clnt_list[i] = (int*) malloc ( sizeof(int) * MAX_CLNT );
 	}
 
-	file_names = (char**) mmap(NULL, sizeof(char)*MAX_FILE*BUF_SIZE, PROT_WRITE|PROT_READ|PROT_EXEC, MAP_SHARED|MAP_ANON, -1, 0);
-	file_chnks = (int*) mmap(NULL, sizeof(int)*MAX_FILE, PROT_WRITE|PROT_READ|PROT_EXEC, MAP_SHARED|MAP_ANON, -1, 0);
-	file_clnt_num = (int*) mmap(NULL, sizeof(int)*MAX_FILE, PROT_WRITE|PROT_READ|PROT_EXEC, MAP_SHARED|MAP_ANON, -1, 0);
-	//file_clnt_list = (int**) mmap(NULL, sizeof(int)*MAX_FILE*MAX_CLNT, PROT_WRITE|PROT_READ|PROT_EXEC, MAP_SHARED|MAP_ANON, -1, 0);
-	
+	clnt_addr_list = (char**) malloc ( sizeof(char*) * (MAX_CLNT+5) );
+	for(int i = 0; i < (MAX_CLNT+5); i++){
+	    clnt_addr_list[i] = (char*) malloc ( sizeof(char) * BUF_SIZE );
+	}
+	clnt_port_list = (int*) malloc ( sizeof(int*) * (MAX_CLNT+5) );
+	clnt_stage = (int*) malloc (sizeof(int*)*(MAX_CLNT+5));
+
+
+	// File settings
+        DIR *dir = NULL;
+        struct dirent *ent;
+
 	pthread_mutex_lock(&mtx);
 
 	printf("Repo file list \n");
@@ -67,7 +82,7 @@ int main(int argc, char *argv[])
         	while((ent = readdir(dir)) != NULL) {
         		if(!strcmp( ent->d_name, ".")) continue;
         		if(!strcmp( ent->d_name, "..")) continue;
-			file_names[file_cnt] = ent->d_name;
+			strcpy(file_names[file_cnt], ent->d_name);
         		file_cnt += 1;
         	}
         	closedir(dir);
@@ -98,6 +113,10 @@ int main(int argc, char *argv[])
 
 	pthread_mutex_unlock(&mtx);
 
+	for(int i = 0; i < file_cnt; i++) {
+		printf ("debug4: %s\n", file_names[i]);
+	}
+		
 	// Socket instiantiation 
 	int serv_sock, clnt_sock;
 	struct sockaddr_in serv_addr, clnt_addr;
@@ -126,20 +145,13 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	// clients
-	clnt_addr_list = (char**) malloc ( sizeof(char*) * (MAX_CLNT+5) );
-	for(int i = 0; i < (MAX_CLNT+5); i++){
-	    clnt_addr_list[i] = (char*) malloc ( sizeof(char) * BUF_SIZE );
+
+	for(int i = 0; i < file_cnt; i++) {
+		printf ("debug5: %s\n", file_names[i]);
 	}
-	clnt_port_list = (int*) malloc ( sizeof(int*) * (MAX_CLNT+5) );
-	clnt_stage = (int*) malloc (sizeof(int*)*(MAX_CLNT+5));
-
-	clnt_addr_list = (char**) mmap(NULL, sizeof(char)*(MAX_CLNT+5)*BUF_SIZE, PROT_WRITE|PROT_READ|PROT_EXEC, MAP_SHARED|MAP_ANON, -1, 0);
-	clnt_port_list = (int*) mmap(NULL, sizeof(int)*(MAX_CLNT+5), PROT_WRITE|PROT_READ|PROT_EXEC, MAP_SHARED|MAP_ANON, -1, 0);
-	clnt_stage = (int*) mmap(NULL, sizeof(int)*(MAX_CLNT+5), PROT_WRITE|PROT_READ|PROT_EXEC, MAP_SHARED|MAP_ANON, -1, 0);
-
+		
 	while(1) {
-		printf("\n...accepting client...\n");
+		//printf("\n...accepting client...\n");
 
 		clnt_addr_sz = sizeof(clnt_addr);
 		clnt_sock = accept(serv_sock, (struct sockaddr*)&clnt_addr, &clnt_addr_sz);
@@ -155,16 +167,32 @@ int main(int argc, char *argv[])
                         continue;
                 }
 
-		printf("...client %d accepted (Addr: %s, Port: %d)\n", 
-			clnt_sock, inet_ntoa(clnt_addr.sin_addr), ntohs(clnt_addr.sin_port));
+		//printf("...client %d accepted (Addr: %s, Port: %d)\n", 
+		//	clnt_sock, inet_ntoa(clnt_addr.sin_addr), ntohs(clnt_addr.sin_port));
 
 		pthread_mutex_lock(&mtx);
+		clnt_params *param = (clnt_params *) malloc(sizeof(clnt_params));
+		param->clnt_sock = clnt_sock;
+		param->arr = file_names;
+
 		clnt_stage[clnt_sock] = 0;
 		clnt_addr_list[clnt_sock] = inet_ntoa(clnt_addr.sin_addr);
 		clnt_cnt += 1;
 		pthread_mutex_unlock(&mtx);
-		
-		if(pthread_create(&tid, NULL, clnt_routine, (void *)&clnt_sock) != 0) {
+/*
+		file_names[0][0] = 'a';
+		file_names[0][1] = 'b';
+		file_names[1][0] = '1';
+		file_names[1][1] = '2';
+		file_names[2][0] = 'c';
+		file_names[2][1] = 'd';
+		for(int i = 0; i < file_cnt; i++) {
+			printf ("debug1: mytest val is %d\n", *mytest);
+			printf ("debug1: %s\n", file_names[i]);
+		}
+	
+*/	
+		if(pthread_create(&tid, NULL, clnt_routine, (void *)param) != 0) {
                         printf("...thread create error\n");
                         close(clnt_sock);
                         continue;
@@ -172,17 +200,36 @@ int main(int argc, char *argv[])
 		pthread_detach(tid);
 	}
 	
+	printf ("freeing memory\n");
 	free(clnt_addr_list);
+	free(clnt_port_list);
 	free(clnt_stage);
 	free(file_names);
 	free(file_chnks);
 	free(file_clnt_num);
+
+/*
+	munmap(clnt_addr_list, sizeof(char)*(MAX_CLNT+5)*BUF_SIZE);
+	munmap(clnt_port_list, sizeof(int)*(MAX_CLNT+5));
+	munmap(clnt_stage, sizeof(int)*(MAX_CLNT+5));
+	munmap(file_names, sizeof(char)*MAX_FILE*BUF_SIZE);
+	munmap(file_chnks, sizeof(int)*MAX_FILE);
+	munmap(file_clnt_num, sizeof(int)*MAX_FILE);
+	munmap(file_clnt_list, sizeof(int)*MAX_FILE);
+*/
+
 	close(serv_sock);
 	return 0;
 }
 
 void *clnt_routine(void *arg) {
-	int clnt_sock = *((int *)arg);
+	printf ("mytest value : %d\n", *mytest);
+
+	//int clnt_sock = *((int *)arg);
+	clnt_params param = *(clnt_params *) arg;
+	int clnt_sock = param.clnt_sock;
+	char **file_names = param.serv_file_names;
+	printf ("debug2: %d\n", clnt_sock);
 
 	// clnt status	
 	int file_num = -1;
@@ -193,26 +240,38 @@ void *clnt_routine(void *arg) {
         pthread_t tid = pthread_self(); // thread id
 	printf("\n");
 
+
+	for(int i = 0; i < file_cnt; i++) {
+		printf ("debug2: %s\n", file_names[i]);
+	}
+
 	// handle client
 	while(1) {
 		if(clnt_stage[clnt_sock] == 0) {
 			char buf[BUF_SIZE];
+			pthread_mutex_lock(&mtx);
 
 			// send file name list
+			memset(buf, 0, BUF_SIZE);
 			sprintf(buf, "%d", file_cnt);
 			printf("sending %s file_names\n", buf);
 			write(clnt_sock, buf, BUF_SIZE);
+
+			for(int i = 0; i < file_cnt; i++) {
+				printf ("debug3: %s\n", file_names[i]);
+			}
 					
 		        for(int i = 0; i < file_cnt; i++) {
-				memset(&buf, 0, BUF_SIZE);
+				memset(buf, 0, BUF_SIZE);
 				sprintf(buf, "%d: %s (%d/%d)", i, file_names[i], file_clnt_num[i], file_chnks[i]);
-				//printf("sending file_name %s\n", file_names[i]);
+				printf("sending file_name %s\n", file_names[i]);
 			        write(clnt_sock, buf, BUF_SIZE);
 			}
 			printf("\n");
 			
 			// move to next stage
 			clnt_stage[clnt_sock] += 1;
+			pthread_mutex_unlock(&mtx);
 		} else if (clnt_stage[clnt_sock] == 1) { 
 			char buf[BUF_SIZE];
 			int str_len = 0;
@@ -317,7 +376,7 @@ void *clnt_routine(void *arg) {
 
 			// send chunk content
 			char file_name[2*BUF_SIZE] = "./serv_repo/\0";
-			strcat(file_name, "test1.txt");
+			strcat(file_name, file_names[file_num]);
 			FILE *fp = fopen(file_name, "rb");
     			if (fp == NULL)
     			{
@@ -325,17 +384,15 @@ void *clnt_routine(void *arg) {
         			exit(1);
     			}
 
-			int read = BUF_SIZE, count = 0;
+			int read = 1, count = 0;
 			for (int i = 0; i < chnk_num; i++) {
 				int clnt = file_clnt_list[file_num][i];
 				if(clnt == clnt_sock) {
-					printf("chunk %d to clnt %d\n", UNT_FILE*i, clnt_sock);
 					fseek(fp, UNT_FILE*i, SEEK_SET);
-            				while((count < UNT_FILE) && (read == BUF_SIZE)) {
+            				while((count < UNT_FILE) && (read == 1)) {
 						memset(&buf, 0, BUF_SIZE);
-						read = fread((void *)buf, 1, BUF_SIZE, fp);
+						read = fread((void *)buf, 1, 1, fp);
 						count += read;
-						printf("%s to clnt %d", buf, clnt_sock);
 						write(clnt_sock, buf, read);
 					}
 				}
@@ -344,12 +401,7 @@ void *clnt_routine(void *arg) {
 			fclose(fp);
 			clnt_stage[clnt_sock] += 1;
 			pthread_mutex_unlock(&mtx);
-		} else if (clnt_stage[clnt_sock] >= 4) {
-			// set file_clnt_num value to 0
-			pthread_mutex_lock(&mtx);
-			file_clnt_num[file_num] = 0;
-			pthread_mutex_unlock(&mtx);
-			
+		} else if (clnt_stage[clnt_sock] >= 4) {			
 			printf("\n... closing client %d\n", clnt_sock);
                         close(clnt_sock);
 			break;
