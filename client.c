@@ -8,13 +8,13 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
-#define PORT 7000
 #define MAX_CLNT 10
 #define BUF_SIZE 30
 #define UNT_FILE 128*8
 
 pthread_mutex_t mtx;
 
+int clnt_port = 0;
 int clnt_stage = -1;
 void *initial_flow(void *arg);
 
@@ -26,11 +26,19 @@ void *send_file(void *arg);
 int main(int argc, char *argv[])
 {
 	// Argument check
-	if (argc != 3) {
-		printf("Usage : %s <IP> <port>\n", argv[0]);
+	if (argc != 4) {
+		printf("Usage : %s <serv_IP> <serv_port> <clnt_port>\n", argv[0]);
 		exit(1);
 	}
 	
+	// Setting
+	clnt_port = atoi(argv[3]);
+	if(clnt_port == 0) {
+		printf("client port can't be 0\n");
+		exit(1);
+	}
+	
+
 	// Variable settingsfile_names = (char**) malloc ( sizeof(char*) * MAX_FILE );
 	peer_addr_list = (char**) malloc ( sizeof(char*) * MAX_CLNT );
 	for(int i = 0; i < MAX_CLNT; i++){
@@ -119,7 +127,8 @@ void *initial_flow(void *arg) {
 			memset(&serv_addr, 0, sizeof(serv_addr));
 			serv_addr.sin_family = AF_INET;
 			serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-			serv_addr.sin_port = htons(PORT);
+			printf("%d\n", clnt_port);
+			serv_addr.sin_port = htons(clnt_port);
 
 			sprintf(buf, "%s", "error");
 
@@ -136,7 +145,8 @@ void *initial_flow(void *arg) {
 			}
 
 			// send port info to server if no error
-			sprintf(buf, "%d", PORT);
+			sprintf(buf, "%d", clnt_port);
+			printf("%s", buf);
 			write(clnt_sock, buf, BUF_SIZE);
 
 			clnt_stage += 1;
@@ -168,7 +178,6 @@ void *initial_flow(void *arg) {
 			printf("Chunk idx: %d\n", chnk_idx);
 			strcat(file_name, "_");
 			strcat(file_name, buf);
-			strcat(file_name, ".txt");
 
 			// open file to be written
 			printf("File name: %s\n", file_name);
@@ -194,7 +203,9 @@ void *initial_flow(void *arg) {
 			printf("finished get_data\n");	
 
 			clnt_stage += 1;
-		} 
+		} else if(clnt_stage > 5) {
+			break;
+		}
 
 		pthread_mutex_unlock(&mtx);
 	}
