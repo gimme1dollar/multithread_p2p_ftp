@@ -1,0 +1,16 @@
+AME_SIZE + BUF_SIZE];
+	int str_len = 0;
+
+	while(1) {
+		str_len = read(sock, name_msg, sizeof(name_msg));
+		if(str_len < 0) {
+			close(sock);
+			exit(0);
+		} else {
+			name_msg[str_len-1] = '\0';
+			printf("%s", name_msg);
+		}
+	}
+	
+	return NULL;
+}

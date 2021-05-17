@@ -373,7 +373,7 @@ void *clnt_routine(void *arg) {
 
 			param.clnt_stage += 1;
 			pthread_mutex_unlock(&mtx);
-		} else if (stage > 5) {			
+		} else if (stage > 5) {	
 			printf("\n... closing client %d\n", clnt_sock);
                         close(clnt_sock);
 			break;
