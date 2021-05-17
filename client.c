@@ -12,14 +12,14 @@
 #define BUF_SIZE 30
 #define UNT_FILE 128*8
 
+typedef struct {
+	int clnt_sock;
+	int clnt_port;
+} clnt_params;
+
 pthread_mutex_t mtx;
+void *t_function(void *arg);
 
-int clnt_port = 0;
-int clnt_stage = -1;
-void *initial_flow(void *arg);
-
-int chnk_idx = -1;
-char **peer_addr_list;
 void *recv_file(void *arg);
 void *send_file(void *arg);
 
@@ -32,18 +32,12 @@ int main(int argc, char *argv[])
 	}
 	
 	// Setting
-	clnt_port = atoi(argv[3]);
+	int clnt_port = atoi(argv[3]);
 	if(clnt_port == 0) {
 		printf("client port can't be 0\n");
 		exit(1);
 	}
 	
-
-	// Variable settingsfile_names = (char**) malloc ( sizeof(char*) * MAX_FILE );
-	peer_addr_list = (char**) malloc ( sizeof(char*) * MAX_CLNT );
-	for(int i = 0; i < MAX_CLNT; i++){
-	    peer_addr_list[i] = (char*) malloc ( sizeof(char) * BUF_SIZE );
-	}
 
 	// Socket instiantiation
 	int clnt_sock;
@@ -63,25 +57,30 @@ int main(int argc, char *argv[])
 	// Get chunk of files & list of peers from server
 	pthread_mutex_init(&mtx, NULL);
 	pthread_t t_id;
-
-	clnt_stage = 0;
-	pthread_create(&t_id, NULL, initial_flow, (void *)&clnt_sock);
-	pthread_join(t_id, NULL);
+	pthread_create(&t_id, NULL, t_function, (void *)&clnt_sock);
 	pthread_detach(t_id);
+
+	// free variable
 	close(clnt_sock);
-
-	// Build flow-network with thread
-	int serv_sock;
-	struct sockaddr_in serv_addr;
-
 	return 0;
 }
 
-void *initial_flow(void *arg) {
-	int clnt_sock = *((int *)arg);
+void *t_function(void *arg) {
+	clnt_params param = *(clnt_params *) arg;
+
+	int clnt_sock = param.clnt_sock;
+	int clnt_port = param.clnt_port;
+
+	int clnt_stage = 0;
+	int chnk_idx;
+
+	char **peer_addr_list = (char**) malloc ( sizeof(char*) * MAX_CLNT );
+	for(int i = 0; i < MAX_CLNT; i++){
+	    peer_addr_list[i] = (char*) malloc ( sizeof(char) * BUF_SIZE );
+	}
+
 	char buf[BUF_SIZE];
 	int str_len = 0;
-
 	while(1) {
 		pthread_mutex_lock(&mtx);
 		//printf("stage %d\n", clnt_stage);
@@ -203,17 +202,13 @@ void *initial_flow(void *arg) {
 			printf("finished get_data\n");	
 
 			clnt_stage += 1;
-		} else if(clnt_stage > 5) {
-			break;
-		}
+		} else if(clnt_stage == 6) {
+			// connect to other peers
+		} 
 
 		pthread_mutex_unlock(&mtx);
 	}
 	
 	close(clnt_sock);
-	return NULL;
-}
-
-void *recv_file(void *arg) {
 	return NULL;
 }
