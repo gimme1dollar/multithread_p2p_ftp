@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
 	printf("Welcome!\n");
 	
 	// Thread
-	pthread_t send_thread, recv_thread;
+	pthread_t send_thread, re	pthread_t send_thread, recv_thread;
 	
 	pthread_create(&send_thread, NULL, send_msg, (void *)&clnt_sock);
 	pthread_create(&recv_thread, NULL, recv_msg, (void *)&clnt_sock);
@@ -99,6 +99,7 @@ void *recv_msg(void *arg) {
 void *recv_msg(void *arg) {
 	int sock = *((int *) arg);
 	char name_msg[NAME_SIZE + BUF_SIZE];
+	intAME_SIZE + BUF_SIZE];
 	int str_len = 0;
 
 	while(1) {

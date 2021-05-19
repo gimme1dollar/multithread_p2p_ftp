@@ -94,24 +94,51 @@ void *recv_msg(void *arg) {
 	}
 	
 	return NULL;
-}
+}#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.d.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/un.h>
+#include <arpa/inet.h>
+#include <pthread.h>
 
-void *recv_msg(void *arg) {
-	int sock = *((int *) arg);
-	char name_msg[NAME_SIZE + BUF_SIZE];
-	intAME_SIZE + BUF_SIZE];
-	int str_len = 0;
+#define BUF_SIZE 30
+#define NAME_SIZE 16
+char msg[BUF_SIZE];
+char name[NAME_SIZE] = "[DEFAULT]";
 
-	while(1) {
-		str_len = read(sock, name_msg, sizeof(name_msg));
-		if(str_len < 0) {
-			close(sock);
-			exit(0);
-		} else {
-			name_msg[str_len-1] = '\0';
-			printf("%s", name_msg);
-		}
+void *send_msg(void *arg);
+void *recv_msg(void *arg);
+
+int main(int argc, char *argv[])
+{
+	// Argument check
+	if (argc != 4) {
+		printf("Usage : %s <IP> <port> <name>\n", argv[0]);
+		exit(1);
 	}
 	
-	return NULL;
-}
+	// name
+	sprintf(name, "[%s]", argv[3]);
+	char buf[BUF_SIZE];
+		
+	// Socket instiantiation
+	int clnt_sock;
+	struct sockaddr_in clnt_addr;
+	clnt_sock = socket(AF_INET, SOCK_STREAM, 0);  
+	
+	memset(&clnt_addr, 0, sizeof(clnt_addr));
+	clnt_addr.sin_family = AF_INET;
+	clnt_addr.sin_addr.s_addr = inet_addr(argv[1]);
+	clnt_addr.sin_port = htons(atoi(argv[2]));
+	
+	// try connect
+	if (connect(clnt_sock, (struct sockaddr*)&clnt_addr, sizeof(clnt_addr)) == -1) {
+		printf("connect() error!");
+		exit(1);
+	}
+	printf("Welcome!\n");
+	

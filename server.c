@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
 	}
 
 	// Thread
-	pthread_t tid;
+	pthread_t tid, eid;
 	pthread_mutex_init(&mtx, NULL);
 
 	// Variables settings
@@ -193,6 +193,7 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
+
 void *clnt_routine(void *arg) {
 	int i;
 	// parameters
@@ -207,7 +208,7 @@ void *clnt_routine(void *arg) {
 
 	// clnt status
 	int file_num = -1;
-	int prev_file_clnt_num;
+	int prev_file_clnt_num = -1;
 
 	// thread info
         pid_t pid = getpid(); // process id
@@ -219,7 +220,7 @@ void *clnt_routine(void *arg) {
 	int str_len = 0;
 	while(1) {
 		stage = param.clnt_stage;
-        	//sleep(1);
+        	sleep(1);
 		//printf("clnt %d in stage %d\n", clnt_sock, stage);
 
 		if(stage == 0) {
@@ -228,13 +229,13 @@ void *clnt_routine(void *arg) {
 			// send file name list
 			memset(buf, 0, BUF_SIZE);
 			sprintf(buf, "%d", *param.file_cnt);
-			printf("sending %s file_names\n", buf);
+			//printf("sending %s file_names\n", buf);
 			write(clnt_sock, buf, BUF_SIZE);
 
       for(i = 0; i < *param.file_cnt; i++) {
 				memset(buf, 0, BUF_SIZE);
 				sprintf(buf, "%d: %s (%d/%d)", i, file_names[i], file_clnt_num[i], file_chnks[i]);
-				printf("sending file_name %s\n", file_names[i]);
+				//printf("sending file_name %s\n", file_names[i]);
 			        write(clnt_sock, buf, BUF_SIZE);
 			}
 			printf("\n");
@@ -265,6 +266,9 @@ void *clnt_routine(void *arg) {
 			pthread_mutex_lock(&mtx);
 			int curr_file_clnt_num = file_clnt_num[file_num];
 			int file_chnk = file_chnks[file_num];
+			
+			//printf ("curr_file_clnt_num: %d\n", curr_file_clnt_num);
+			//printf ("prev_file_clnt_num: %d\n", prev_file_clnt_num);
 
 			// send client status of the chosen file
 			if(curr_file_clnt_num != prev_file_clnt_num) {
@@ -357,27 +361,37 @@ void *clnt_routine(void *arg) {
         			exit(1);
     			}
 
-			int read = 1, count = 0;
+			int str_len = BUF_SIZE, count = 0;
 			for (i = 0; i < chnk_num; i++) {
 				int clnt = file_clnt_list[file_num][i];
 				if(clnt == clnt_sock) {
 					fseek(fp, UNT_FILE*i, SEEK_SET);
-            				while((count < UNT_FILE) && (read == 1)) {
+            				while((count < UNT_FILE) && (str_len == BUF_SIZE)) {
 						memset(&buf, 0, BUF_SIZE);
-						read = fread((void *)buf, 1, 1, fp);
-						count += read;
-						write(clnt_sock, buf, read);
+						str_len = fread((void *)buf, 1, BUF_SIZE, fp);
+						count += str_len;
+						//printf("%s", buf);
+						write(clnt_sock, buf, str_len);
 					}
 				}
 			}
 
 			fclose(fp);
 
-			param.clnt_stage += 1;
+			str_len = read(clnt_sock, buf, BUF_SIZE);
+			if(strcmp(buf, "complete") != NULL) {
+				param.clnt_stage += 1;
+				printf("%s from %d", buf, clnt_sock);
+			}
 			pthread_mutex_unlock(&mtx);
 		} else if (stage > 5) {
-			printf("\n... closing client %d\n", clnt_sock);
-                        close(clnt_sock);
+			pthread_mutex_lock(&mtx);
+
+			file_clnt_num[file_num] -=1 ;			
+			printf("... closing client %d\n", clnt_sock);
+                       close(clnt_sock);
+                       
+			pthread_mutex_unlock(&mtx);
 			break;
 		}
 	}

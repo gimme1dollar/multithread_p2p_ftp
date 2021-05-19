@@ -46,3 +46,4 @@ int main(int argc, char *argv[])
 	printf("Welcome!\n");
 	
 	// Thread
+	pthread_t send_thread, re

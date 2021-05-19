@@ -38,7 +38,8 @@ typedef struct {
 
 
 pthread_mutex_t mtx;
-void *t_function(void *arg);
+void *routine(void *arg);
+void *exception(void *arg);
 void *acpt_peer(void *arg);
 void *recv_file(void *arg);
 void *send_file(void *arg);
@@ -74,25 +75,36 @@ int main(int argc, char *argv[])
 	}
 
 	// Get chunk of files & list of peers from server
-	printf ("Debug Point 1\n");
 	pthread_mutex_init(&mtx, NULL);
-	pthread_t t_id;
+	pthread_t t_id, e_id;
 	clnt_params *param = (clnt_params *) malloc(sizeof(clnt_params));
-	printf ("Debug Point 2\n");
 	param->clnt_sock = clnt_sock;
 	param->clnt_port = clnt_port;
-	pthread_create(&t_id, NULL, t_function, (void *)param);
-	printf ("Debug Point 3\n");
+	pthread_create(&t_id, NULL, routine, (void *)param);
 	pthread_join(t_id, NULL);
 	pthread_detach(t_id);
-	printf ("Debug Point 4\n");
-
+	
 	// free variable
 	close(clnt_sock);
 	return 0;
 }
 
-void *t_function(void *arg) {
+void *exception (void *arg) {
+	char buf[BUF_SIZE];
+
+	while(1) {
+		sleep(1);
+		pthread_mutex_lock(&mtx);
+		fgets(buf, BUF_SIZE, stdin);
+		if(strstr(buf, "q") != NULL) {
+			printf("pressed quit\n");
+		}
+		pthread_mutex_unlock(&mtx);
+	}
+
+}
+
+void *routine(void *arg) {
 	int i;
 	clnt_params param = *(clnt_params *) arg;
 
@@ -105,7 +117,7 @@ void *t_function(void *arg) {
 	int clnt_stage = 0;
 	int chnk_idx;
 
-	char file_name_org[2 * BUF_SIZE];
+	char file_name_org[BUF_SIZE];
 
 	int peer_num;
 	char **peer_addr_list = (char**) malloc ( sizeof(char*) * MAX_CLNT );
@@ -123,7 +135,6 @@ void *t_function(void *arg) {
 
 		if(clnt_stage == 0) {
 			read(clnt_sock, buf, BUF_SIZE);
-			printf ("Debug Point 6\n");
 			int file_num = atoi(buf);
 
 			printf("\n****** File list (num of %d) ******\n", file_num);
@@ -180,7 +191,6 @@ void *t_function(void *arg) {
 
 			// send port info to server if no error
 			sprintf(buf, "%d", clnt_port);
-			printf("%s", buf);
 			write(clnt_sock, buf, BUF_SIZE);
 
 			clnt_stage += 1;
@@ -197,9 +207,6 @@ void *t_function(void *arg) {
 				// get ip and port from buffer
 				char ip_tmp[BUF_SIZE];
 				char port_tmp[BUF_SIZE];
-
-				// printf ("Debug1: %s\n", strtok (buf, " "));
-				// printf ("Debug1: %s:%s\n", strtok (buf, " "), strtok (NULL, " "));
 
 				strcpy (ip_tmp, strtok (buf, " "));
 				strcpy (port_tmp, strtok (NULL, " "));
@@ -243,11 +250,16 @@ void *t_function(void *arg) {
 				memset(&buf, 0, BUF_SIZE);
 				str_len = read(clnt_sock, buf, BUF_SIZE);
 				count += str_len;
+				printf("%s", buf);
 				fwrite(buf, 1, str_len, recv_file);
 			}
 
 			fflush(recv_file);
 			fclose(recv_file);
+			
+			// complete message
+			sprintf(buf, "complete file\n");
+			write(clnt_sock, buf, BUF_SIZE);
 
 			printf("finished get_data\n");
 
@@ -303,7 +315,7 @@ void *t_function(void *arg) {
 			clnt_stage += 1;
 		} else if(clnt_stage == 7) {
 			// wait for peer sending files
-			printf("peer_collected %d\n", peer_collected);
+			//printf("peer_collected %d\n", peer_collected);
 
 			if(peer_collected >= peer_num) {
 				clnt_stage +=1;
@@ -322,8 +334,9 @@ void *t_function(void *arg) {
 
 			for(i = 0; i < peer_num+1 ; i++) {
 				char chnk_name[2*BUF_SIZE] = "./repo/\0";
-				sprintf(buf, "%s_%d", file_name_org, i);
-				strcat(chnk_name, buf);
+				char tmp[2*BUF_SIZE];
+				sprintf(tmp, "%s_%d", file_name_org, i);
+				strcat(chnk_name, tmp);
 
 				FILE* chnk_file;
 				chnk_file = fopen(chnk_name, "rb");
@@ -432,10 +445,11 @@ void *recv_file(void *arg) {
 		fwrite(buf, 1, str_len, recv_file);
 	}
 
-	printf("collected %s\n", file_name);
+	printf("\ncollected %s\n", file_name);
 	*param.collect += 1;
 	fflush(recv_file);
 	fclose(recv_file);
+	close(param.sock);
 	free (arg);
 	return NULL;
 }
@@ -481,6 +495,7 @@ void *send_file(void *arg) {
 	fflush(send_file);
 	fclose(send_file);
 	printf("sent %s\n", file_name);
+	close(param.sock);
 	free (arg);
 	return NULL;
 }
